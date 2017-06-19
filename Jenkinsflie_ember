@@ -1,0 +1,24 @@
+def service='service-template'
+def endpoint='service-endpoint'
+def version='1.0.0'
+node('ember') {
+   stage('Checkout') {
+      checkout scm
+   }
+   stage('Build Service') {
+      sh "npm install"
+      sh "ember build --environment=\"production\""
+   }
+   stage('Build Docker Image') {
+      sh "docker rmi ${endpoint}/${service}:${version} || true"
+      sh "docker rmi ${endpoint}/${service}:latest || true"
+      sh "docker build --rm -t ${username}/${service}:${version} -t ${username}/${service}:latest ."
+   }
+   stage('Push Docker Image') {
+      sh "docker push ${endpoint}/${service}:${version}"
+      sh "docker push ${endpoint}/${service}:latest"
+   }
+   stage('Publish Artifacts') {
+      archive 'dist/**/*'
+   }
+}

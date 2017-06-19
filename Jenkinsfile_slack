@@ -1,0 +1,47 @@
+def service='template-service'
+def registry='localhost'
+def imageVersion
+
+try {
+   node('mvn') {
+      stage('Checkout') {
+         checkout scm
+         sh "git log --pretty=format:\"%H - %ad - %an - %s\" --date=short -1 > commit.txt"
+         archive 'commit.txt'
+      }
+      stage('Build Service') {
+         configFileProvider([configFile(fileId: 'b4e4e721-fe84-4cfb-a67d-8c732a2c46ec', variable: 'MAVEN_SETTINGS')]) {
+            sh "mvn -s \"$MAVEN_SETTINGS\" clean package -P build,!dev"
+         }
+      }
+      stage('Build Docker Image') {
+         configFileProvider(
+           [configFile(fileId: 'b4e4e721-fe84-4cfb-a67d-8c732a2c46ec', variable: 'MAVEN_SETTINGS')]) {
+               def commitId = sh(returnStdout: true, script: 'git rev-parse HEAD').trim().take(11)
+               def version=sh(returnStdout: true, script: 'printf \'VER\t${project.version}\' | mvn -s \"$MAVEN_SETTINGS\" help:evaluate | grep \'^VER\' | cut -f2').trim()
+               imageVersion = version.replace("-SNAPSHOT", "") + "-" + commitId
+               sh "docker rmi ${registry}/${service}:latest || true"
+               sh "docker build --rm --build-arg service=${service} --build-arg version=${version} -t ${registry}/${service}:${imageVersion} -t ${registry}/${service}:latest ."
+         }
+      }
+      stage('Push Docker Image') {
+         sh "docker push ${registry}/${service}:latest"
+         sh "docker push ${registry}/${service}:${imageVersion}"
+      }
+      stage('Publish Artifacts') {
+         archive 'target/*.jar'
+         archive 'target/site/jacoco/**/*'
+      }
+
+      stage('Publish To Nexus'){
+          configFileProvider(
+           [configFile(fileId: 'b4e4e721-fe84-4cfb-a67d-8c732a2c46ec', variable: 'MAVEN_SETTINGS')]) {
+           sh "mvn -s $MAVEN_SETTINGS clean deploy -DskipTests"
+       }
+   }
+}
+   }
+} catch (error) {
+   slackSend channel: "#build", message: "${env.JOB_NAME} ${env.BUILD_URL}console @channel"  
+   currentBuild.result = 'FAILURE'
+}

@@ -1,0 +1,25 @@
+def service='template-service'
+def endpoint='localhost'
+node('mvn') {
+   stage('Checkout') {
+      checkout scm
+   }
+   stage('Build Service') {
+      configFileProvider(
+              [configFile(fileId: 'b4e4e721-fe84-4cfb-a67d-8c732a2c46ec', variable: 'MAVEN_SETTINGS')]) {
+                sh "mvn  -s $MAVEN_SETTINGS package"
+      }
+   }
+   stage('Build Docker Image') {
+      def version=sh(returnStdout: true, script: 'printf \'VER\t${project.version}\' | mvn help:evaluate | grep \'^VER\' | cut -f2').trim()
+      sh "docker build --rm --build-arg service=${service} --build-arg version=${version} -t ${endpoint}/${service}:${version} -t ${endpoint}/${service}:latest ."
+   }
+   stage('Push Docker Image') {
+      def version=sh returnStdout: true, script: 'printf \'VER\t${project.version}\' | mvn help:evaluate | grep \'^VER\' | cut -f2'
+      sh "docker push ${endpoint}/${service}"
+   }
+   stage('Archive Artifacts') {
+      archive 'target/*.jar'
+      archive 'target/site/jacoco/**/*'
+   }
+}
